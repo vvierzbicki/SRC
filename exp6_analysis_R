@@ -1,0 +1,61 @@
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(lme4)
+library(purrr)
+
+# Set the directory containing the CSV files
+path <- "C:/..."
+
+# List all CSV files in the directory and sort them alphabetically
+csv_files <- list.files(path = path, pattern = "*.csv", full.names = TRUE) %>%
+  sort()
+
+# Read and merge CSV files with a file number column
+df <- csv_files %>%
+  map2_df(seq_along(csv_files), ~read_csv(.x) %>%
+            select(subject_ID, RTCK, fingseq, motion, correct) %>%
+            mutate(RTCK = as.numeric(RTCK),
+                   subject_ID = as.character(subject_ID),
+                   subject = .y))
+# Filter data
+df <- subset(df, fingseq != 'wrong')
+df <- subset(df, correct != 0)
+df <- df %>% drop_na(RTCK)
+
+# Remove unused columns
+df <- df %>%
+  select(-subject_ID, -fingseq, -correct)
+
+# Calculate 4 bins based on quartiles for each subject and motion
+df <- df %>%
+  group_by(subject, motion) %>%
+  mutate(bin = ntile(RTCK, 4)) %>%
+  ungroup()
+
+df <- df[order(df$subject, df$motion, df$RTCK), ]
+
+# Group by and calculate means
+df1 <- df %>%
+  group_by(subject, motion, bin) %>%
+  summarize(RT = mean(RTCK))
+
+df2 <- df %>%
+  group_by(subject, motion) %>%
+  summarize(RT = mean(RTCK))
+
+# Export to csv
+write.csv(df, "C:/.../exp_6_data.csv", row.names=FALSE)
+write.csv(df1, "C:/.../exp_6_data_bins.csv", row.names=FALSE)
+
+# Create a linear mixed model (based on https://bodowinter.com/tutorial/bw_LME_tutorial.pdf)
+model = lmer(RTCK ~ motion + bin + (1|subject), data = df, REML=FALSE)
+
+summary(model)
+
+# Create null model to check statistical significance
+model.null = lmer(RTCK ~ 1 + (1|subject), data = df, REML=FALSE)
+
+anova(model,model.null)
